@@ -11,14 +11,14 @@ const float US_PER_SAMPLE = 1000000.0 / SAMPLE_RATE;
 
 const int BUFFER_SIZE = 8192;
 const int BUFFER_MASK = BUFFER_SIZE - 1;
-const int OUTPUT_DELAY = 1024;
+const int OUTPUT_DELAY = 4096;
 
 const float SAMPLE_ZERO_ALPHA = 0.0001;
 const int ANALOG_AVERAGING = 1;
 const int ANALOG_RESOLUTION = 10;
 const int ANALOG_SCALE = 1 << (ANALOG_RESOLUTION - 1);
 
-const int FFT_SIZE = 256;
+const int FFT_SIZE = 1024;
 const int FFT_MASK = FFT_SIZE - 1;
 
 const int OVERLAP_FACTOR = 4;

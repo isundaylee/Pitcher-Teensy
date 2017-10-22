@@ -63,6 +63,10 @@ static float altAtan(float x) {
 }
 
 static float altAtan2(float y, float x) {
+  if (x == 0) {
+    return 0.0;
+  }
+
   if (x > 0) {
     return altAtan(y / x);
   } else {

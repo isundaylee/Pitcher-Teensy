@@ -11,7 +11,8 @@ float sampleZero = 392.82;
 
 int attempts = 0;
 int successes = 0;
-int shift = 1;
+int shift = -1;
+float shiftRate = pow(10, log(2) / 12.0 * shift);
 
 void sample() {
   markBusy();
@@ -36,9 +37,6 @@ void sample() {
 }
 
 void setup() {
-  // Serial.begin(9600);
-
-  // pinMode(PIN_BUSY, OUTPUT);
   pinMode(PIN_AUDIO_IN, INPUT);
   pinMode(PIN_AUDIO_OUT, OUTPUT);
 
@@ -62,18 +60,6 @@ void pitchShift() {
   static float synFreqs[FFT_SIZE / 2 + 1];
   static float synMags[FFT_SIZE / 2 + 1];
 
-  static int inited = 0;
-
-  if (!inited) {
-    inited = true;
-    memset(lastPhases, 0, sizeof(lastPhases));
-    memset(sumPhases, 0, sizeof(sumPhases));
-    memset(trueFreqs, 0, sizeof(trueFreqs));
-    memset(trueMags, 0, sizeof(trueMags));
-    memset(synFreqs, 0, sizeof(synFreqs));
-    memset(synMags, 0, sizeof(synMags));
-  }
-
   float expDiff = 2.0 * PI / (float)OVERLAP_FACTOR;
 
   for (int i = 0; i <= FFT_SIZE / 2; i++) {
@@ -81,14 +67,17 @@ void pitchShift() {
     float phaseDiff = phase - lastPhases[i];
     lastPhases[i] = phase;
 
+    // Shift phaseDiff to [-PI, PI)
     phaseDiff -= (float)i * expDiff;
-    while (phaseDiff <= -PI)
-      phaseDiff += 2.0 * PI;
-    while (phaseDiff > PI)
-      phaseDiff -= 2.0 * PI;
+    int wholePis = phaseDiff / PI;
+    if (wholePis >= 0)
+      wholePis += wholePis & 1;
+    else
+      wholePis -= wholePis & 1;
+    phaseDiff -= PI * (double)wholePis;
 
     trueFreqs[i] = (float)i + (phaseDiff * OVERLAP_FACTOR / (2.0 * PI));
-    trueMags[i] = 2.0 * sqrt(FFT_BUFFER_IM(i) * FFT_BUFFER_IM(i) +
+    trueMags[i] = 6.0 * sqrt(FFT_BUFFER_IM(i) * FFT_BUFFER_IM(i) +
                              FFT_BUFFER_RE(i) * FFT_BUFFER_RE(i));
   }
 
@@ -96,10 +85,10 @@ void pitchShift() {
   memset(synMags, 0, sizeof(synMags));
 
   for (int i = 0; i <= FFT_SIZE / 2; i++) {
-    int newIndex = i;
+    int newIndex = shiftRate * i;
     if (newIndex <= FFT_SIZE / 2) {
       synMags[newIndex] += trueMags[i];
-      synFreqs[newIndex] = trueFreqs[i] * 1.0;
+      synFreqs[newIndex] = trueFreqs[i] * shiftRate;
     }
   }
 
@@ -107,7 +96,6 @@ void pitchShift() {
     float phaseDelta = 2.0 * PI * synFreqs[i] / OVERLAP_FACTOR;
     sumPhases[i] += phaseDelta;
 
-    // float phase = altAtan2(FFT_BUFFER_IM(i), FFT_BUFFER_RE(i));
     float phase = sumPhases[i];
 
     FFT_BUFFER_RE(i) = altCos(phase) * synMags[i];
@@ -119,6 +107,7 @@ void pitchShift() {
     FFT_BUFFER_IM(i) = 0.0;
   }
 }
+
 
 void doWindow(int end) {
   int start = end - WINDOW_SIZE + 1;
