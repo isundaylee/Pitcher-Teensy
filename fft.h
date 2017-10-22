@@ -5,7 +5,7 @@
 static arm_cfft_radix2_instance_f32 _insFFT;
 static arm_cfft_radix2_instance_f32 _insIFFT;
 
-const int TRIG_TABLE_COUNT = 1024;
+const int TRIG_TABLE_COUNT = 4096;
 const int TRIG_TABLE_MASK = TRIG_TABLE_COUNT - 1;
 const float TRIG_TABLE_RESOLUTION = 2 * PI / TRIG_TABLE_COUNT;
 
@@ -47,27 +47,31 @@ static float altCos(float x) {
   return cosTable[(int)(x / TRIG_TABLE_RESOLUTION) & TRIG_TABLE_MASK];
 }
 
-static float altAtan2(float y, float x) {}
+static float altAtan(float x) {
+  if (x >= -1 && x <= 1) {
+    return (0.97179803008 * x) - (0.19065470515 * x * x * x);
+  } else {
+    x = 1 / x;
+    float ans = (0.97179803008 * x) - (0.19065470515 * x * x * x);
 
-static void ifft(float* data, float* bias) {
-  arm_cfft_radix2_f32(&_insIFFT, data);
-  // static float buffer[FFT_SIZE];
-  //
-  // for (int i = 0; i < FFT_SIZE / 2; i++) {
-  //   bias[i] += (float)i;
-  // }
-  //
-  // for (int i = 0; i < FFT_SIZE; i++) {
-  //   buffer[i] = 0.0;
-  //   for (int j = 0; j < FFT_SIZE / 2; j++) {
-  //     float angle = 2 * PI * float(i) * float(j) / (float)FFT_SIZE;
-  //     buffer[i] +=
-  //         data[2 * j] * altCos(angle) - data[2 * j + 1] * altSin(angle);
-  //   }
-  // }
-  //
-  // for (int i = 0; i < FFT_SIZE; i++) {
-  //   data[2 * i] = buffer[i] / FFT_SIZE;
-  //   data[2 * i + 1] = 0.0;
-  // }
+    if (x > 0) {
+      return 0.5 * PI - ans;
+    } else {
+      return -0.5 * PI - ans;
+    }
+  }
 }
+
+static float altAtan2(float y, float x) {
+  if (x > 0) {
+    return altAtan(y / x);
+  } else {
+    if (y > 0) {
+      return altAtan(y / x) + PI;
+    } else {
+      return altAtan(y / x) - PI;
+    }
+  }
+}
+
+static void ifft(float* data) { arm_cfft_radix2_f32(&_insIFFT, data); }

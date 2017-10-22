@@ -7,7 +7,7 @@ IntervalTimer timer;
 int lastProcessed = 0;
 int lastRead = 0;
 
-float sampleZero = 0.67 * ANALOG_SCALE;
+float sampleZero = 392.82;
 
 int attempts = 0;
 int successes = 0;
@@ -38,7 +38,7 @@ void sample() {
 void setup() {
   // Serial.begin(9600);
 
-  pinMode(PIN_BUSY, OUTPUT);
+  // pinMode(PIN_BUSY, OUTPUT);
   pinMode(PIN_AUDIO_IN, INPUT);
   pinMode(PIN_AUDIO_OUT, OUTPUT);
 
@@ -51,31 +51,97 @@ void setup() {
   timer.begin(sample, US_PER_SAMPLE);
 }
 
-void doWindow(int end) {
-  static float lastPhases[FFT_SIZE / 2];
-  static float bias[FFT_SIZE / 2];
+void pitchShift() {
+  // All phases are in radian
+  // All freqs are in multiples of bin frequency
 
+  static float lastPhases[FFT_SIZE / 2 + 1];
+  static float sumPhases[FFT_SIZE / 2 + 1];
+  static float trueFreqs[FFT_SIZE / 2 + 1];
+  static float trueMags[FFT_SIZE / 2 + 1];
+  static float synFreqs[FFT_SIZE / 2 + 1];
+  static float synMags[FFT_SIZE / 2 + 1];
+
+  static int inited = 0;
+
+  if (!inited) {
+    inited = true;
+    memset(lastPhases, 0, sizeof(lastPhases));
+    memset(sumPhases, 0, sizeof(sumPhases));
+    memset(trueFreqs, 0, sizeof(trueFreqs));
+    memset(trueMags, 0, sizeof(trueMags));
+    memset(synFreqs, 0, sizeof(synFreqs));
+    memset(synMags, 0, sizeof(synMags));
+  }
+
+  float expDiff = 2.0 * PI / (float)OVERLAP_FACTOR;
+
+  for (int i = 0; i <= FFT_SIZE / 2; i++) {
+    float phase = altAtan2(FFT_BUFFER_IM(i), FFT_BUFFER_RE(i));
+    float phaseDiff = phase - lastPhases[i];
+    lastPhases[i] = phase;
+
+    phaseDiff -= (float)i * expDiff;
+    while (phaseDiff <= -PI)
+      phaseDiff += 2.0 * PI;
+    while (phaseDiff > PI)
+      phaseDiff -= 2.0 * PI;
+
+    trueFreqs[i] = (float)i + (phaseDiff * OVERLAP_FACTOR / (2.0 * PI));
+    trueMags[i] = 2.0 * sqrt(FFT_BUFFER_IM(i) * FFT_BUFFER_IM(i) +
+                             FFT_BUFFER_RE(i) * FFT_BUFFER_RE(i));
+  }
+
+  memset(synFreqs, 0, sizeof(synFreqs));
+  memset(synMags, 0, sizeof(synMags));
+
+  for (int i = 0; i <= FFT_SIZE / 2; i++) {
+    int newIndex = i;
+    if (newIndex <= FFT_SIZE / 2) {
+      synMags[newIndex] += trueMags[i];
+      synFreqs[newIndex] = trueFreqs[i] * 1.0;
+    }
+  }
+
+  for (int i = 0; i <= FFT_SIZE / 2; i++) {
+    float phaseDelta = 2.0 * PI * synFreqs[i] / OVERLAP_FACTOR;
+    sumPhases[i] += phaseDelta;
+
+    // float phase = altAtan2(FFT_BUFFER_IM(i), FFT_BUFFER_RE(i));
+    float phase = sumPhases[i];
+
+    FFT_BUFFER_RE(i) = altCos(phase) * synMags[i];
+    FFT_BUFFER_IM(i) = altSin(phase) * synMags[i];
+  }
+
+  for (int i = FFT_SIZE / 2 + 1; i < FFT_SIZE; i++) {
+    FFT_BUFFER_RE(i) = 0.0;
+    FFT_BUFFER_IM(i) = 0.0;
+  }
+}
+
+void doWindow(int end) {
   int start = end - WINDOW_SIZE + 1;
 
-  for (int i = start; i <= end; i++) {
-    FFT_BUFFER_RE(i) = INPUT_BUFFER(i);
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    FFT_BUFFER_RE(i) = windowEnvelop[i] * INPUT_BUFFER(start + i);
     FFT_BUFFER_IM(i) = 0.0;
   }
 
   fft(bufFFT);
-  ifft(bufFFT, bias);
+  pitchShift();
+  ifft(bufFFT);
 
   for (int i = end - WINDOW_STEP + 1; i <= end; i++) {
     OUTPUT_BUFFER(i) = 0;
   }
 
-  for (int i = start; i <= end; i++) {
-    OUTPUT_BUFFER(i) +=
-        windowEnvelop[(i - start) & WINDOW_MASK] * FFT_BUFFER_RE(i);
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    OUTPUT_BUFFER(start + i) += windowEnvelop[i] * FFT_BUFFER_RE(i);
   }
 
   noInterrupts();
-  lastProcessed = start;
+  lastProcessed = start + WINDOW_STEP - 1;
   interrupts();
 }
 
